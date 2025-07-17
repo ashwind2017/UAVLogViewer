@@ -1,21 +1,25 @@
 <template>
   <div class="chat-interface">
-    <div class="chat-content">
-        <div class="chat-header">
-          <h4>
-            <i class="fas fa-robot"></i>
-            UAV Flight Assistant
-          </h4>
-          <div v-if="currentFlight" class="flight-info">
-            <small>
-              <i class="fas fa-plane"></i>
-              Flight: {{ currentFlight.flight_id.slice(0, 8) }}...
-              | Duration: {{ currentFlight.summary.duration.toFixed(1) }}s
-              | Max Alt: {{ currentFlight.summary.max_altitude.toFixed(0) }}m
-            </small>
-          </div>
-        </div>
-        
+    <!-- Top Header -->
+    <div class="chat-header">
+      <h4>
+        <i class="fas fa-robot"></i>
+        UAV Flight Assistant
+      </h4>
+      <div v-if="currentFlight" class="flight-info">
+        <small>
+          <i class="fas fa-plane"></i>
+          Flight: {{ currentFlight.flight_id.slice(0, 8) }}...
+          | Duration: {{ currentFlight.summary.duration.toFixed(1) }}s
+          | Max Alt: {{ currentFlight.summary.max_altitude.toFixed(0) }}m
+        </small>
+      </div>
+    </div>
+    
+    <!-- Main Content Area -->
+    <div class="main-content">
+      <!-- Left Panel - Chat Interface -->
+      <div class="left-panel">
         <div class="tab-navigation" v-if="currentFlight">
           <div class="tab-buttons">
             <button 
@@ -102,15 +106,15 @@
                 type="text" 
                 v-model="currentMessage" 
                 @keypress.enter="sendMessage"
-                placeholder="Ask about flight data..."
+                :placeholder="currentFlight ? 'Ask about flight data...' : 'Ask questions or upload a flight file...'"
                 class="form-control"
-                :disabled="!currentFlight || isTyping"
+                :disabled="isTyping"
               >
               <div class="input-group-append">
                 <button 
                   class="btn btn-primary" 
                   @click="sendMessage"
-                  :disabled="!currentMessage.trim() || !currentFlight || isTyping"
+                  :disabled="!currentMessage.trim() || isTyping"
                 >
                   <i class="fas fa-paper-plane"></i>
                 </button>
@@ -128,9 +132,9 @@
         </div>
       </div>
       
-      <!-- Bottom Visualization (Always Visible) -->
-      <div class="visualization-section" v-if="currentFlight">
-        <FlightPathVisualization :flight-data="currentFlight"/>
+      <!-- Right Panel - Flight Visualization -->
+      <div class="right-panel" v-if="currentFlight">
+        <FlightPathVisualization ref="flightViz" :flight-data="currentFlight"/>
       </div>
     </div>
   </div>
@@ -161,8 +165,14 @@ export default {
       historicalFlights: []
     }
   },
-  mounted() {
-    this.addMessage('assistant', 'Hello! Upload a .bin flight log file to start analyzing your drone flight data.')
+  async mounted() {
+    this.addMessage('assistant', 'Hello! I\'m your UAV flight analyst. Upload a .bin flight log file for detailed analysis, or ask me general questions about drone flights, MAVLink protocol, or flight safety.')
+    await this.restoreCurrentFlight()
+    
+    // Trigger resize after layout settles
+    this.$nextTick(() => {
+      this.triggerVisualizationResize()
+    })
   },
   methods: {
     async handleFileSelect(event) {
@@ -195,7 +205,13 @@ export default {
         console.log('GPS data length:', response.telemetry?.gps?.length)
         console.log('Sample GPS points:', response.telemetry?.gps?.slice(0, 3))
         this.currentFlight = response
+        this.saveCurrentFlight(response)
         this.addMessage('assistant', `Flight data uploaded successfully! I can now analyze your flight data. Duration: ${response.summary.duration.toFixed(1)}s, Max altitude: ${response.summary.max_altitude.toFixed(0)}m.`)
+        
+        // Trigger visualization resize after flight data loads
+        this.$nextTick(() => {
+          this.triggerVisualizationResize()
+        })
         
         if (response.summary.anomalies && response.summary.anomalies.length > 0) {
           this.addMessage('assistant', `⚠️ I detected some anomalies: ${response.summary.anomalies.join(', ')}. Feel free to ask me about them!`)
@@ -211,7 +227,7 @@ export default {
     },
 
     async sendMessage() {
-      if (!this.currentMessage.trim() || !this.currentFlight) return
+      if (!this.currentMessage.trim()) return
 
       const userMessage = this.currentMessage.trim()
       this.addMessage('user', userMessage)
@@ -219,7 +235,8 @@ export default {
       this.isTyping = true
 
       try {
-        const response = await chatService.sendChatMessage(userMessage, this.currentFlight.flight_id)
+        const flightId = this.currentFlight ? this.currentFlight.flight_id : null
+        const response = await chatService.sendChatMessage(userMessage, flightId)
         this.addMessage('assistant', response.response)
         
         // Update proactive suggestions
@@ -261,6 +278,58 @@ export default {
     askSuggestion(suggestion) {
       this.currentMessage = suggestion
       this.sendMessage()
+    },
+
+    saveCurrentFlight(flightData) {
+      try {
+        localStorage.setItem('currentFlight', JSON.stringify(flightData))
+        localStorage.setItem('currentFlightId', flightData.flight_id)
+      } catch (error) {
+        console.warn('Failed to save flight data to localStorage:', error)
+      }
+    },
+
+    async restoreCurrentFlight() {
+      try {
+        console.log('Attempting to restore current flight...')
+        
+        // First try to restore from localStorage
+        const savedFlight = localStorage.getItem('currentFlight')
+        console.log('Saved flight from localStorage:', savedFlight ? 'Found' : 'Not found')
+        
+        if (savedFlight) {
+          const flightData = JSON.parse(savedFlight)
+          console.log('Parsed flight data:', flightData.flight_id)
+          this.currentFlight = flightData
+          this.addMessage('assistant', `Restored previous flight: ${flightData.flight_id.slice(0, 8)}... Duration: ${flightData.summary.duration.toFixed(1)}s`)
+          console.log('Flight restored successfully from localStorage')
+          return
+        }
+
+        // If no localStorage, try to get the most recent flight from backend
+        console.log('Trying to get recent flight from backend...')
+        const response = await chatService.getRecentFlight()
+        if (response) {
+          console.log('Got recent flight from backend:', response.flight_id)
+          this.currentFlight = response
+          this.saveCurrentFlight(response)
+          this.addMessage('assistant', `Restored most recent flight: ${response.flight_id.slice(0, 8)}... Duration: ${response.summary.duration.toFixed(1)}s`)
+          console.log('Flight restored successfully from backend')
+        } else {
+          console.log('No recent flight found on backend')
+        }
+      } catch (error) {
+        console.log('Error restoring flight:', error)
+      }
+    },
+
+    triggerVisualizationResize() {
+      // Trigger resize on the flight path visualization
+      if (this.$refs.flightViz && this.$refs.flightViz.onWindowResize) {
+        setTimeout(() => {
+          this.$refs.flightViz.onWindowResize()
+        }, 100)
+      }
     }
   }
 }
@@ -277,49 +346,54 @@ export default {
   min-height: 600px;
 }
 
-.chat-layout {
-  display: flex;
-  height: 100%;
-  gap: 8px;
-  min-height: 500px;
+.main-content {
+  display: flex !important;
   flex: 1;
+  gap: 12px;
+  height: calc(100% - 80px); /* Account for header height */
 }
 
-.chat-section {
-  flex: 1;
-  display: flex;
+.left-panel {
+  width: 600px !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
   flex-direction: column;
-  min-width: 400px;
   background: #ffffff;
   border-radius: 8px;
   border: 1px solid #dee2e6;
 }
 
-.visualization-section {
-  flex: 1;
-  min-width: 400px;
+.right-panel {
+  flex: 1 !important;
   background: #1a1a1a;
   border-radius: 8px;
   border: 1px solid #333;
   color: white;
-  display: flex;
+  display: flex !important;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
-.viz-placeholder {
-  text-align: center;
-  padding: 2rem;
+.right-panel >>> .flight-path-container {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
 }
 
-.viz-placeholder h3 {
-  color: #64f4ff;
-  margin-bottom: 1rem;
+.right-panel >>> .three-container {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
 }
 
-.viz-placeholder p {
-  margin: 0.5rem 0;
-  color: #e2e8f0;
+.right-panel >>> canvas {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
 }
 
 .chat-header {
@@ -327,6 +401,8 @@ export default {
   color: white;
   padding: 1rem;
   border-bottom: 1px solid #dee2e6;
+  flex-shrink: 0;
+  min-height: 80px;
 }
 
 .chat-header h4 {
@@ -389,7 +465,8 @@ export default {
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
-  max-height: 400px;
+  min-height: 300px;
+  max-height: none;
 }
 
 .message {

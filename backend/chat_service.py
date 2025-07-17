@@ -28,6 +28,8 @@ class ChatService:
 
         # Flight data cache
         self.flight_cache = {}
+        self.flight_cache_file = "flight_cache.json"
+        self.load_flight_cache()
 
     async def process_message(self, message: str, flight_id: str = None) -> Dict[str, Any]:
         """Process chat message about flight data with advanced memory"""
@@ -157,6 +159,18 @@ Current Flight Data:
 Use this data to answer questions about the flight."""
             
             context_parts.append(flight_context)
+        else:
+            no_flight_context = """
+No flight data is currently loaded. You can:
+1. Answer general questions about UAV analysis, MAVLink protocol, or flight safety
+2. Provide guidance on what to look for in flight logs
+3. Explain common flight anomalies and their causes
+4. Help interpret flight telemetry data concepts
+5. Suggest the user upload a .bin flight log file for specific analysis
+
+Be helpful and informative even without specific flight data."""
+            
+            context_parts.append(no_flight_context)
 
         return base_prompt + "".join(context_parts)
 
@@ -186,3 +200,32 @@ To get more detailed AI analysis, please set up your OpenAI or Anthropic API key
     def cache_flight_data(self, flight_id: str, data: Dict[str, Any]):
         """Cache flight data for quick access"""
         self.flight_cache[flight_id] = data
+        self.save_flight_cache()
+        
+    def get_most_recent_flight(self) -> Optional[Dict[str, Any]]:
+        """Get the most recently cached flight data"""
+        if not self.flight_cache:
+            return None
+        
+        # Get the most recent flight based on timestamp or just return the last one
+        most_recent_flight_id = max(self.flight_cache.keys(), 
+                                   key=lambda fid: self.flight_cache[fid].get('timestamp', ''))
+        return self.flight_cache.get(most_recent_flight_id)
+    
+    def load_flight_cache(self):
+        """Load flight cache from file"""
+        try:
+            if os.path.exists(self.flight_cache_file):
+                with open(self.flight_cache_file, 'r') as f:
+                    self.flight_cache = json.load(f)
+                print(f"Loaded {len(self.flight_cache)} flights from cache")
+        except Exception as e:
+            print(f"Error loading flight cache: {e}")
+    
+    def save_flight_cache(self):
+        """Save flight cache to file"""
+        try:
+            with open(self.flight_cache_file, 'w') as f:
+                json.dump(self.flight_cache, f, indent=2, default=str)
+        except Exception as e:
+            print(f"Error saving flight cache: {e}")

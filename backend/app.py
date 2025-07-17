@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 from mavlink_parser import MAVLinkParser
 from chat_service import ChatService
 
@@ -24,11 +25,13 @@ chat_service = ChatService()
 
 class ChatMessage(BaseModel):
     message: str
-    flight_id: str = None
+    flight_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
     response: str
     flight_data: Dict[str, Any] = {}
+    proactive_suggestions: List[str] = []
+    comparison_insights: str = ""
 
 @app.post("/api/upload")
 async def upload_flight_data(file: UploadFile = File(...)):
@@ -51,6 +54,9 @@ async def upload_flight_data(file: UploadFile = File(...)):
         print(f"GPS data length: {len(flight_data['telemetry']['gps'])}")
         print(f"Sample GPS data: {flight_data['telemetry']['gps'][:3] if flight_data['telemetry']['gps'] else 'No GPS data'}")
 
+        # Add timestamp for recency tracking
+        flight_data["timestamp"] = datetime.now().isoformat()
+        
         # Cache flight data in chat service
         chat_service.cache_flight_data(flight_data["flight_id"], flight_data)
 
@@ -73,7 +79,9 @@ async def chat_with_flight_data(chat_message: ChatMessage):
         )
         return ChatResponse(
             response=response["answer"],
-            flight_data=response.get("flight_data")
+            flight_data=response.get("flight_data", {}),
+            proactive_suggestions=response.get("proactive_suggestions", []),
+            comparison_insights=response.get("comparison_insights", "")
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -82,6 +90,17 @@ async def chat_with_flight_data(chat_message: ChatMessage):
 async def get_flights():
     """Get list of uploaded flights"""
     return parser.get_flight_list()
+
+@app.get("/api/flights/recent")
+async def get_recent_flight():
+    """Get the most recently uploaded flight"""
+    try:
+        flight_data = chat_service.get_most_recent_flight()
+        if not flight_data:
+            raise HTTPException(status_code=404, detail="No flights found")
+        return flight_data
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="No recent flight found")
 
 @app.get("/api/flights/{flight_id}")
 async def get_flight_details(flight_id: str):

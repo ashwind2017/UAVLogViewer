@@ -54,6 +54,16 @@ class ChatService {
       throw error
     }
   }
+
+  async getRecentFlight() {
+    try {
+      const response = await axios.get(`${this.baseURL}/flights/recent`)
+      return response.data
+    } catch (error) {
+      console.error('Error fetching recent flight:', error)
+      throw error
+    }
+  }
 }
 
 export default new ChatService()

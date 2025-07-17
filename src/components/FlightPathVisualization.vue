@@ -152,8 +152,8 @@ export default {
       // Create renderer
       this.renderer = new THREE.WebGLRenderer({ antialias: true })
       this.renderer.setSize(
-        this.$refs.threeContainer.clientWidth,
-        this.$refs.threeContainer.clientHeight
+        this.$refs.threeContainer.clientWidth || 800,
+        this.$refs.threeContainer.clientHeight || 600
       )
       this.renderer.shadowMap.enabled = true
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -409,6 +409,19 @@ export default {
       // Window resize
       window.addEventListener('resize', this.onWindowResize)
       
+      // Container resize observer
+      if (window.ResizeObserver) {
+        this.resizeObserver = new ResizeObserver(() => {
+          this.onWindowResize()
+        })
+        this.resizeObserver.observe(this.$refs.threeContainer)
+      }
+      
+      // Periodic size check to prevent gradual shrinking
+      this.sizeCheckInterval = setInterval(() => {
+        this.checkAndFixSize()
+      }, 5000) // Check every 5 seconds
+      
       // Start render loop
       this.animate()
     },
@@ -430,9 +443,36 @@ export default {
     },
     
     onWindowResize() {
-      this.camera.aspect = this.$refs.threeContainer.clientWidth / this.$refs.threeContainer.clientHeight
+      if (!this.$refs.threeContainer || !this.camera || !this.renderer) return
+      
+      const width = this.$refs.threeContainer.clientWidth || 800
+      const height = this.$refs.threeContainer.clientHeight || 600
+      
+      // Prevent shrinking below minimum size
+      if (width < 200 || height < 200) return
+      
+      this.camera.aspect = width / height
       this.camera.updateProjectionMatrix()
-      this.renderer.setSize(this.$refs.threeContainer.clientWidth, this.$refs.threeContainer.clientHeight)
+      this.renderer.setSize(width, height)
+      
+      // Force canvas to maintain correct size
+      const canvas = this.renderer.domElement
+      canvas.style.width = '100%'
+      canvas.style.height = '100%'
+    },
+    
+    checkAndFixSize() {
+      if (!this.$refs.threeContainer || !this.renderer) return
+      
+      const containerWidth = this.$refs.threeContainer.clientWidth
+      const containerHeight = this.$refs.threeContainer.clientHeight
+      const canvas = this.renderer.domElement
+      
+      // Check if canvas size doesn't match container
+      if (canvas.width !== containerWidth || canvas.height !== containerHeight) {
+        console.log('Fixing visualization size:', containerWidth, 'x', containerHeight)
+        this.onWindowResize()
+      }
     },
     
     animate() {
@@ -526,6 +566,16 @@ export default {
         this.renderer.dispose()
       }
       window.removeEventListener('resize', this.onWindowResize)
+      
+      // Clean up resize observer
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect()
+      }
+      
+      // Clean up size check interval
+      if (this.sizeCheckInterval) {
+        clearInterval(this.sizeCheckInterval)
+      }
     }
   }
 }
@@ -582,6 +632,13 @@ export default {
 .three-container {
   flex: 1;
   position: relative;
+}
+
+.three-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
 }
 
 .telemetry-panel {
