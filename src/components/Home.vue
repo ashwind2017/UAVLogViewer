@@ -22,6 +22,7 @@
 
             <main class="col-md-9 ml-sm-auto col-lg-10 flex-column d-sm-flex" role="main">
                 
+                <!-- Original UAVLogViewer layout when chat is disabled -->
                 <div class="row" v-bind:class="[state.showChat ? 'h-50' : (state.showMap ? 'h-50' : 'h-100')]"
                      v-if="state.plotOn">
                     <div class="col-12">
@@ -35,15 +36,7 @@
                     </div>
                 </div>
                 
-                <!-- Debug info -->
-                <div v-if="state.processDone && (!state.mapAvailable || !mapOk || !state.showMap)" style="padding: 20px; color: white; background: rgba(255,0,0,0.5);">
-                    <h4>Debug: Why isn't the 3D map showing?</h4>
-                    <p>mapAvailable: {{state.mapAvailable}}</p>
-                    <p>mapOk: {{mapOk}}</p>
-                    <p>showMap: {{state.showMap}}</p>
-                    <p>trajectoryLength: {{state.currentTrajectory.length}}</p>
-                    <p>flightModeChanges: {{state.flightModeChanges.length}}</p>
-                </div>
+                <!-- Chat interface - only shown when enabled -->
                 <div class="row chat-row" v-bind:class="[state.plotOn && state.showMap ? 'h-25' : (state.plotOn || state.showMap ? 'h-50' : 'h-100')]"
                      v-if="state.showChat">
                     <div class="col-12 chat-container" style="padding: 8px; height: 100%;">
@@ -158,10 +151,6 @@ export default {
     },
     methods: {
         extractFlightData () {
-            console.log('extractFlightData called, current loading states:', {
-                mapLoading: this.state.mapLoading,
-                plotLoading: this.state.plotLoading
-            })
             if (this.dataExtractor === null) {
                 if (this.state.logType === 'tlog') {
                     this.dataExtractor = MavlinkDataExtractor
@@ -276,55 +265,26 @@ export default {
             this.state.processStatus = 'Processed!'
             this.state.processDone = true
             
-            console.log('Flight data extracted:', {
-                trajectoryLength: this.state.currentTrajectory.length,
-                mapAvailable: this.state.mapAvailable,
-                flightModeChanges: this.state.flightModeChanges.length,
-                hasAttitude: Object.keys(this.state.timeAttitude).length > 0 || Object.keys(this.state.timeAttitudeQ).length > 0,
-                mapOk: this.mapOk,
-                timeAttitudeKeys: Object.keys(this.state.timeAttitude).length,
-                timeAttitudeQKeys: Object.keys(this.state.timeAttitudeQ).length,
-                trajectorySources: this.state.trajectorySources.length,
-                processDone: this.state.processDone
-            })
-            
-            // Additional debugging
-            console.log('Current trajectory sample:', this.state.currentTrajectory.slice(0, 3))
-            console.log('Flight mode changes:', this.state.flightModeChanges)
-            console.log('Available messages:', Object.keys(this.state.messages))
-            
-            // Change to plot view after 2 seconds so the Processed status is readable
-            setTimeout(() => { this.$eventHub.$emit('set-selected', 'plot') }, 2000)
-            
-            // Clear loading states after components have time to initialize
-            setTimeout(() => {
-                console.log('Clearing loading states after delay')
-                this.state.mapLoading = false
-                this.state.plotLoading = false
-                console.log('Loading states after clearing:', {
-                    mapLoading: this.state.mapLoading,
-                    plotLoading: this.state.plotLoading
-                })
-            }, 3000)
-
-            // Set map and plot availability based on extracted data
+            // Set up view states for original UAVLogViewer functionality
             this.state.mapAvailable = this.state.currentTrajectory.length > 0
+            this.state.plotOn = true
             
-            // For original UAVLogViewer, prioritize showing the 3D map if available
-            if (this.state.mapAvailable && this.mapOk) {
+            // If we have trajectory data, show the map
+            if (this.state.mapAvailable) {
                 this.state.showMap = true
-                this.state.plotOn = false // Don't show plots by default, user can enable them
-            } else {
-                this.state.plotOn = true // Fallback to plots if map isn't available
-                this.state.showMap = false
             }
             
-            console.log('Final view states:', {
+            console.log('Home: After processing, view states:', {
                 mapAvailable: this.state.mapAvailable,
                 plotOn: this.state.plotOn,
                 showMap: this.state.showMap,
+                mapOk: this.mapOk,
+                trajectoryLength: this.state.currentTrajectory.length,
                 processDone: this.state.processDone
             })
+            
+            // Change to plot view after 2 seconds so the Processed status is readable
+            setTimeout(() => { this.$eventHub.$emit('set-selected', 'plot') }, 2000)
         },
 
         generateColorMMap () {

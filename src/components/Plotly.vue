@@ -152,6 +152,14 @@ const plotOptions = {
 }
 
 export default {
+    data() {
+        return {
+            lastLogTime: null,
+            plotlyNotReadyLogged: false,
+            plotlyLayoutNotReadyLogged: false,
+            zoomInterval: null
+        }
+    },
     created () {
         this.$eventHub.$on('cesium-time-changed', this.setCursorTime)
         this.$eventHub.$on('hoveredTime', this.setCursorTime)
@@ -926,17 +934,39 @@ export default {
             console.log('layout done in ' + (new Date() - start) + 'ms')
         },
         setCursorTime (time) {
-            console.log('master got hover event at ' + time + 'ms')
+            // Throttle console logging to reduce spam
+            if (!this.lastLogTime || Date.now() - this.lastLogTime > 1000) {
+                console.log('master got hover event at ' + time + 'ms')
+                this.lastLogTime = Date.now()
+            }
             try {
                 const bglayer = document.getElementsByClassName('bglayer')[0]
+                if (!bglayer || !bglayer.childNodes || bglayer.childNodes.length === 0) {
+                    // Only log this once per session
+                    if (!this.plotlyNotReadyLogged) {
+                        console.log('Plotly not ready yet, skipping setCursorTime')
+                        this.plotlyNotReadyLogged = true
+                    }
+                    return
+                }
                 const rect = bglayer.childNodes[0]
+                if (!rect || !this.gd || !this.gd.layout || !this.gd.layout.xaxis) {
+                    // Only log this once per session
+                    if (!this.plotlyLayoutNotReadyLogged) {
+                        console.log('Plotly layout not ready, skipping setCursorTime')
+                        this.plotlyLayoutNotReadyLogged = true
+                    }
+                    return
+                }
                 const x = parseInt(rect.getAttribute('x'))
                 const width = parseInt(rect.getAttribute('width'))
                 const percTime = (time - this.gd.layout.xaxis.range[0]) /
                     (this.gd.layout.xaxis.range[1] - this.gd.layout.xaxis.range[0])
                 const newx = x + width * percTime
-                this.cursor.setAttribute('x1', newx)
-                this.cursor.setAttribute('x2', newx)
+                if (this.cursor) {
+                    this.cursor.setAttribute('x1', newx)
+                    this.cursor.setAttribute('x2', newx)
+                }
             } catch (err) {
                 console.log(err)
             }
