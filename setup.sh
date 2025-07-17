@@ -11,9 +11,11 @@ echo "📦 Installing frontend dependencies..."
 npm install
 
 # Install backend dependencies
-echo "🐍 Installing backend dependencies..."
+echo "🐍 Setting up Python virtual environment..."
 cd backend
-pip3 install -r requirements.txt
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 cd ..
 
 # Create environment file template
@@ -35,7 +37,7 @@ echo ""
 echo "📋 Next steps:"
 echo "1. Copy backend/.env.template to backend/.env"
 echo "2. Add your OpenAI and Anthropic API keys to backend/.env"
-echo "3. Start the backend: cd backend && python3 app.py"
+echo "3. Start the backend: cd backend && source venv/bin/activate && python3 app.py"
 echo "4. Start the frontend: npm run dev"
 echo "5. Open http://localhost:8080 in your browser"
 echo ""

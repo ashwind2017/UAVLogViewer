@@ -25,7 +25,9 @@ npm install
 
 # Install backend dependencies
 cd backend
-pip3 install -r requirements.txt
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 cd ..
 
 # Create environment file
@@ -44,6 +46,7 @@ ANTHROPIC_API_KEY=your_anthropic_key_here
 ```bash
 # Terminal 1: Start backend
 cd backend
+source venv/bin/activate
 python3 app.py
 
 # Terminal 2: Start frontend
