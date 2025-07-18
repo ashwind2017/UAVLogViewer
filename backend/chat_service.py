@@ -34,6 +34,20 @@ class ChatService:
     async def process_message(self, message: str, flight_id: str = None) -> Dict[str, Any]:
         """Process chat message about flight data with advanced memory"""
         try:
+            # Validate input
+            if not message or not message.strip():
+                return {
+                    "answer": "Please enter a message to get started!",
+                    "flight_data": None,
+                    "proactive_suggestions": [],
+                    "comparison_insights": "",
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Truncate very long messages
+            if len(message) > 2000:
+                message = message[:2000] + "..."
+
             # Get flight data if flight_id provided
             flight_data = None
             if flight_id:
@@ -44,13 +58,18 @@ class ChatService:
             if flight_id:
                 conversation_context = agent_memory.get_conversation_context(flight_id)
 
-            # Generate response using LLM
-            if self.openai_client:
-                response = await self._query_openai(message, flight_data, conversation_context)
-            elif self.anthropic_client:
-                response = await self._query_anthropic(message, flight_data, conversation_context)
-            else:
-                response = self._fallback_response(message, flight_data)
+            # Generate response using LLM with timeout protection
+            response = None
+            try:
+                if self.openai_client:
+                    response = await self._query_openai(message, flight_data, conversation_context)
+                elif self.anthropic_client:
+                    response = await self._query_anthropic(message, flight_data, conversation_context)
+                else:
+                    response = self._fallback_response(message, flight_data)
+            except Exception as llm_error:
+                print(f"LLM Error: {llm_error}")
+                response = self._fallback_response(message, flight_data, error=str(llm_error))
 
             # Store conversation in memory
             if flight_id:
@@ -79,10 +98,11 @@ class ChatService:
                 "timestamp": datetime.now().isoformat()
             }
         except Exception as e:
+            print(f"Chat service error: {e}")
             return {
-                "answer": f"Sorry, I encountered an error: {str(e)}",
+                "answer": f"I'm having trouble processing your request. Please try again or upload a new flight file. Error: {str(e)}",
                 "flight_data": None,
-                "proactive_suggestions": [],
+                "proactive_suggestions": ["Try uploading a different .bin file", "Ask a simpler question", "Check your internet connection"],
                 "comparison_insights": "",
                 "timestamp": datetime.now().isoformat()
             }
@@ -146,7 +166,7 @@ Provide clear, technical answers while being accessible to users."""
 
         if flight_data:
             summary = flight_data.get("summary", {})
-            anomalies = summary.get("anomalies", [])
+            telemetry_summary = summary.get("telemetry_summary", {})
 
             flight_context = f"""
 Current Flight Data:
@@ -154,9 +174,21 @@ Current Flight Data:
 - Max Altitude: {summary.get('max_altitude', 'Unknown')} meters
 - GPS Points: {len(flight_data.get('telemetry', {}).get('gps', []))}
 - Battery Data Points: {len(flight_data.get('telemetry', {}).get('battery', []))}
-- Detected Anomalies: {', '.join(anomalies) if anomalies else 'None'}
 
-Use this data to answer questions about the flight."""
+Telemetry Analysis Patterns (analyze for anomalies dynamically):
+{self._format_telemetry_patterns(telemetry_summary)}
+
+Automatic Anomaly Analysis Results:
+{self._format_anomaly_analysis(summary.get('anomaly_analysis', {}))}
+
+IMPORTANT: Instead of rigid rules, analyze these patterns to identify:
+- Unusual GPS behavior (look for patterns, not fixed thresholds)
+- Concerning vibration trends (consider context and flight phase)
+- Battery performance issues (analyze voltage trends and current draw)
+- Altitude anomalies (sudden changes, unexpected patterns)
+- System stability indicators (correlate multiple sensors)
+
+Use your expertise to reason about these patterns contextually."""
             
             context_parts.append(flight_context)
         else:
@@ -174,20 +206,109 @@ Be helpful and informative even without specific flight data."""
 
         return base_prompt + "".join(context_parts)
 
-    def _fallback_response(self, message: str, flight_data: Optional[Dict]) -> str:
+    def _format_telemetry_patterns(self, telemetry_summary: Dict[str, Any]) -> str:
+        """Format telemetry patterns for LLM analysis"""
+        if not telemetry_summary:
+            return "No telemetry patterns available for analysis."
+        
+        formatted_patterns = []
+        
+        # GPS patterns
+        if "gps_patterns" in telemetry_summary:
+            gps = telemetry_summary["gps_patterns"]
+            formatted_patterns.append(f"""
+GPS Signal Quality:
+- Total GPS readings: {gps.get('total_points', 0)}
+- Fix types: {gps.get('fix_type_distribution', {})}
+- HDOP range: {gps.get('hdop_range', {})}
+- Satellite count range: {gps.get('satellite_range', {})}""")
+        
+        # Vibration patterns
+        if "vibration_patterns" in telemetry_summary:
+            vibe = telemetry_summary["vibration_patterns"]
+            formatted_patterns.append(f"""
+Vibration Analysis:
+- Total vibration readings: {vibe.get('total_readings', 0)}
+- X-axis range: {vibe.get('x_axis', {})}
+- Y-axis range: {vibe.get('y_axis', {})}
+- Z-axis range: {vibe.get('z_axis', {})}""")
+        
+        # Battery patterns
+        if "battery_patterns" in telemetry_summary:
+            battery = telemetry_summary["battery_patterns"]
+            formatted_patterns.append(f"""
+Battery Performance:
+- Total battery readings: {battery.get('total_readings', 0)}
+- Voltage trend: {battery.get('voltage_trend', [])}
+- Voltage range: {battery.get('voltage_range', {})}
+- Current range: {battery.get('current_range', {})}""")
+        
+        # Altitude patterns
+        if "altitude_patterns" in telemetry_summary:
+            altitude = telemetry_summary["altitude_patterns"]
+            formatted_patterns.append(f"""
+Altitude Behavior:
+- Total position readings: {altitude.get('total_points', 0)}
+- Altitude range: {altitude.get('altitude_range', {})}
+- Largest climb: {altitude.get('largest_climb', 0)}m
+- Largest descent: {altitude.get('largest_descent', 0)}m
+- Altitude profile: {altitude.get('altitude_profile', [])}""")
+        
+        return "\n".join(formatted_patterns) if formatted_patterns else "No detailed telemetry patterns available."
+    
+    def _format_anomaly_analysis(self, anomaly_analysis: Dict[str, Any]) -> str:
+        """Format anomaly analysis results for LLM context"""
+        if not anomaly_analysis:
+            return "No automatic anomaly analysis available."
+        
+        formatted_analysis = []
+        
+        # Anomalies detected
+        anomalies = anomaly_analysis.get("anomalies_detected", [])
+        if anomalies:
+            formatted_analysis.append(f"Anomalies Detected: {', '.join(anomalies)}")
+        else:
+            formatted_analysis.append("Anomalies Detected: None")
+        
+        # Severity assessment
+        severity = anomaly_analysis.get("severity_assessment", "unknown")
+        formatted_analysis.append(f"Severity Level: {severity.title()}")
+        
+        # Analysis summary
+        analysis_summary = anomaly_analysis.get("analysis_summary", "")
+        if analysis_summary:
+            formatted_analysis.append(f"Analysis Summary: {analysis_summary}")
+        
+        # Recommendations
+        recommendations = anomaly_analysis.get("recommendations", [])
+        if recommendations:
+            formatted_analysis.append(f"Recommendations: {', '.join(recommendations)}")
+        
+        return "\n".join(formatted_analysis)
+
+    def _fallback_response(self, message: str, flight_data: Optional[Dict], error: str = None) -> str:
         """Fallback response when no LLM API is available"""
         if flight_data:
             summary = flight_data.get("summary", {})
             anomalies = summary.get("anomalies", [])
+            anomaly_analysis = summary.get("anomaly_analysis", {})
+
+            analysis_text = ""
+            if anomaly_analysis:
+                analysis_text = f"""
+Automatic Anomaly Analysis:
+{self._format_anomaly_analysis(anomaly_analysis)}
+"""
 
             return f"""I can see you're asking about flight data. Here's what I found:
 
 Flight Summary:
 - Duration: {summary.get('duration', 'Unknown')} seconds
 - Max Altitude: {summary.get('max_altitude', 'Unknown')} meters
-- Anomalies: {', '.join(anomalies) if anomalies else 'None detected'}
-
-To get more detailed AI analysis, please set up your OpenAI or Anthropic API key in the environment variables."""
+- Legacy Anomalies: {', '.join(anomalies) if anomalies else 'None detected'}
+{analysis_text}
+To get more detailed AI analysis, please set up your OpenAI or Anthropic API key in the environment variables.
+{f"Note: {error}" if error else ""}"""
         else:
             return "I'm ready to analyze flight data! Please upload a .bin file first, then I can answer questions about the flight telemetry."
 

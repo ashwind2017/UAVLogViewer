@@ -191,6 +191,27 @@ export default {
     },
 
     async uploadFile(file) {
+      // Validate file before upload
+      if (!file) {
+        this.addMessage('assistant', 'Please select a file to upload.')
+        return
+      }
+      
+      if (!file.name.endsWith('.bin')) {
+        this.addMessage('assistant', 'Please upload a .bin flight log file. Other file types are not supported.')
+        return
+      }
+      
+      if (file.size === 0) {
+        this.addMessage('assistant', 'The selected file is empty. Please choose a valid flight log file.')
+        return
+      }
+      
+      if (file.size > 100 * 1024 * 1024) { // 100MB
+        this.addMessage('assistant', 'File is too large (>100MB). Please choose a smaller flight log file.')
+        return
+      }
+      
       this.uploadProgress = 10
       this.addMessage('user', `Uploading ${file.name}...`)
       
@@ -222,7 +243,19 @@ export default {
         }, 1000)
       } catch (error) {
         this.uploadProgress = 0
-        this.addMessage('assistant', `Error uploading file: ${error.message}`)
+        console.error('Upload error:', error)
+        
+        let errorMessage = 'Upload failed. '
+        if (error.message) {
+          errorMessage += error.message
+        } else {
+          errorMessage += 'Please try a different .bin file or check your connection.'
+        }
+        
+        this.addMessage('assistant', errorMessage)
+        
+        // Provide helpful suggestions
+        this.addMessage('assistant', '💡 Try: Make sure your file is a valid MAVLink .bin log from ArduPilot, PX4, or similar flight control software.')
       }
     },
 
@@ -230,6 +263,13 @@ export default {
       if (!this.currentMessage.trim()) return
 
       const userMessage = this.currentMessage.trim()
+      
+      // Validate message length
+      if (userMessage.length > 2000) {
+        this.addMessage('assistant', 'Message is too long. Please keep it under 2000 characters.')
+        return
+      }
+      
       this.addMessage('user', userMessage)
       this.currentMessage = ''
       this.isTyping = true
@@ -237,7 +277,15 @@ export default {
       try {
         const flightId = this.currentFlight ? this.currentFlight.flight_id : null
         const response = await chatService.sendChatMessage(userMessage, flightId)
-        this.addMessage('assistant', response.response)
+        
+        // Handle response
+        if (response.response) {
+          this.addMessage('assistant', response.response)
+        } else if (response.answer) {
+          this.addMessage('assistant', response.answer)
+        } else {
+          this.addMessage('assistant', 'I received an unexpected response. Please try again.')
+        }
         
         // Update proactive suggestions
         this.proactiveSuggestions = response.proactive_suggestions || []
@@ -246,7 +294,21 @@ export default {
         this.comparisonInsights = response.comparison_insights || ''
         
       } catch (error) {
-        this.addMessage('assistant', `Sorry, I encountered an error: ${error.message}`)
+        console.error('Chat error:', error)
+        let errorMessage = 'Sorry, I encountered an error. '
+        if (error.message) {
+          errorMessage += error.message
+        } else {
+          errorMessage += 'Please try again or check your connection.'
+        }
+        this.addMessage('assistant', errorMessage)
+        
+        // Provide helpful suggestions on error
+        this.proactiveSuggestions = [
+          'Try asking a simpler question',
+          'Check if flight data is loaded',
+          'Refresh the page and try again'
+        ]
       } finally {
         this.isTyping = false
       }
