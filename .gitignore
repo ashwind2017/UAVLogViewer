@@ -90,10 +90,6 @@ backend/uploads/
 backend/venv/
 backend/.env
 
-# Cache files that can get too large
-backend/agent_memory.json
-backend/flight_cache.json
-
 # Python cache files
 backend/__pycache__/
 *.pyc
